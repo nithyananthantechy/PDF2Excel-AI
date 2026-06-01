@@ -1,0 +1,49 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Custom styles for Geometric Balance Theme */
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #f8fafc;
+}
+
+.geometric-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.geometric-btn {
+  background: #2563eb;
+  color: #ffffff;
+  border-radius: 4px;
+  font-weight: 600;
+  transition: all 0.15s ease-in-out;
+}
+
+.geometric-btn:hover {
+  background: #1e40af;
+}
+
+.geometric-btn-secondary {
+  border: 1px solid #2563eb;
+  color: #2563eb;
+  background: #ffffff;
+  border-radius: 4px;
+  font-weight: 600;
+  transition: all 0.15s ease-in-out;
+}
+
+.geometric-btn-secondary:hover {
+  background: #eff6ff;
+}
+
+.geometric-border {
+  border-color: #e2e8f0;
+}
