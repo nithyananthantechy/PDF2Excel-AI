@@ -131,11 +131,12 @@ export default function App() {
       <header className="bg-white text-[#0f172a] py-4 px-8 flex items-center justify-between border-b border-[#e2e8f0] h-16 shrink-0 z-10">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded-[4px] flex items-center justify-center text-white font-black text-lg select-none">
-            P
+            N
           </div>
           <span className="text-lg font-bold tracking-tight text-[#0f172a] font-sans">
-            PDF2Excel <span className="text-blue-600">AI</span>
+            Nithyana Cable <span className="text-blue-600">Admin</span>
           </span>
+          <span className="hidden sm:inline-block text-[10px] font-mono text-slate-450 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded uppercase font-extrabold tracking-widest text-[#64748b]">Nithyananthan Administration Console</span>
         </div>
 
         <div className="flex items-center gap-6">

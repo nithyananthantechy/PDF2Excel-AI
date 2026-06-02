@@ -145,11 +145,12 @@ export function LandingPage({ onNavigate, currentUser, onLogout }: LandingPagePr
       <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-[#e2e8f0] px-8 py-4 flex items-center justify-between mx-auto w-full">
         <div className="flex items-center gap-3" id="nav-brand">
           <div className="h-8 w-8 bg-blue-600 flex items-center justify-center rounded-[4px] text-white font-black text-lg select-none">
-            P
+            N
           </div>
           <span className="text-lg font-bold tracking-tight text-[#0f172a] font-sans">
-            PDF2Excel <span className="text-blue-600 font-extrabold">AI</span>
+            Nithyana Cable <span className="text-blue-600 font-extrabold">AI Portal</span>
           </span>
+          <span className="hidden sm:inline-block text-[10px] font-mono bg-slate-100 text-slate-500 px-2 py-0.5 rounded uppercase font-bold tracking-widest text-[#64748b]">Nithyananthan Admin v2.0</span>
         </div>
 
         <nav className="hidden md:flex items-center gap-8 text-xs font-bold uppercase tracking-wider text-[#64748b] font-sans">

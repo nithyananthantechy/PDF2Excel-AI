@@ -1,6 +1,6 @@
 {
   "name": "PDF2Excel AI",
-  "description": "Convert scanned PDFs, handwritten forms, invoices, and logistics records into structured Excel spreadsheets instantly using Gemini OCR.",
+  "description": "Nithyananthan Administration PDF OCR utility customized for Nithyana Cable operations, high-precision table parsing and Excel exports.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

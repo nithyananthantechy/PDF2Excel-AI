@@ -16,11 +16,31 @@ export function AuthPages({ onAuthSuccess, initialMode = 'login', onNavigate }: 
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  const handleSuperLogin = () => {
+    setBusy(true);
+    setError(null);
+    setTimeout(() => {
+      onAuthSuccess({
+        id: 'usr-1',
+        name: 'Nithyananthan Nagarajan',
+        email: 'nithyananthannagarajan092@gmail.com',
+        role: 'admin',
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        plan: 'enterprise'
+      });
+      setBusy(false);
+    }, 800);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
     setMessage(null);
+
+    // Auto promote Nithyananthan to admin on any mode
+    const isNithyaEmail = email.toLowerCase() === 'nithyananthannagarajan092@gmail.com' || email.toLowerCase().includes('nithyana');
 
     try {
       if (mode === 'login') {
@@ -30,7 +50,28 @@ export function AuthPages({ onAuthSuccess, initialMode = 'login', onNavigate }: 
           body: JSON.stringify({ email, password })
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Login failed');
+        if (!res.ok) {
+          // Fallback authorization for live Vercel deployments
+          if (isNithyaEmail) {
+            onAuthSuccess({
+              id: 'usr-1',
+              name: 'Nithyananthan Nagarajan',
+              email: 'nithyananthannagarajan092@gmail.com',
+              role: 'admin',
+              status: 'active',
+              createdAt: new Date().toISOString(),
+              plan: 'enterprise'
+            });
+            return;
+          }
+          throw new Error(data.error || 'Login failed');
+        }
+        
+        // Ensure Nithyananthan is super admin
+        if (isNithyaEmail && data.user) {
+          data.user.role = 'admin';
+          data.user.plan = 'enterprise';
+        }
         onAuthSuccess(data.user);
       } else if (mode === 'register') {
         const res = await fetch('/api/auth/register', {
@@ -39,7 +80,26 @@ export function AuthPages({ onAuthSuccess, initialMode = 'login', onNavigate }: 
           body: JSON.stringify({ name, email, password })
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Registration failed');
+        if (!res.ok) {
+          if (isNithyaEmail) {
+            onAuthSuccess({
+              id: 'usr-1',
+              name: name || 'Nithyananthan Nagarajan',
+              email: 'nithyananthannagarajan092@gmail.com',
+              role: 'admin',
+              status: 'active',
+              createdAt: new Date().toISOString(),
+              plan: 'enterprise'
+            });
+            return;
+          }
+          throw new Error(data.error || 'Registration failed');
+        }
+        
+        if (isNithyaEmail && data.user) {
+          data.user.role = 'admin';
+          data.user.plan = 'enterprise';
+        }
         onAuthSuccess(data.user);
       } else {
         const res = await fetch('/api/auth/forgot-password', {
@@ -61,14 +121,17 @@ export function AuthPages({ onAuthSuccess, initialMode = 'login', onNavigate }: 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-sans">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="flex justify-center items-center gap-2" id="auth-logo-header">
-          <div className="h-10 w-10 bg-[#0f172a] flex items-center justify-center rounded-[4px] text-white font-mono text-xl font-bold font-sans">
-            P2E
+        <div className="flex flex-col items-center justify-center gap-2" id="auth-logo-header">
+          <div className="flex items-center gap-2">
+            <div className="h-10 w-10 bg-blue-600 flex items-center justify-center rounded-[4px] text-white font-mono text-xl font-bold font-sans">
+              N
+            </div>
+            <span className="text-2xl font-sans tracking-tight font-extrabold text-[#0f172a]">Nithyana Cable</span>
           </div>
-          <span className="text-2xl font-sans tracking-tight font-bold text-[#0f172a]">PDF2Excel AI</span>
+          <span className="text-xxs font-mono font-bold text-slate-400 uppercase tracking-widest bg-slate-100 px-2 py-0.5 rounded">Nithyananthan Administration Console</span>
         </div>
-        <h2 className="mt-6 text-center text-xl font-bold uppercase tracking-wider text-[#0f172a] font-sans" id="auth-form-title">
-          {mode === 'login' && 'Sign in to your account'}
+        <h2 className="mt-6 text-center text-lg font-bold uppercase tracking-wider text-[#0f172a] font-sans" id="auth-form-title">
+          {mode === 'login' && 'Sign in to PDF2Excel AI'}
           {mode === 'register' && 'Create your new account'}
           {mode === 'forgot' && 'Reset your password'}
         </h2>
@@ -200,6 +263,25 @@ export function AuthPages({ onAuthSuccess, initialMode = 'login', onNavigate }: 
 
           {/* Social login divider */}
           <div className="mt-6" id="auth-social-divider">
+            <div className="relative mb-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-[#e2e8f0]" />
+              </div>
+              <div className="relative flex justify-center text-[10px]">
+                <span className="px-2.5 bg-white text-slate-550 uppercase tracking-widest font-bold">Nithyana Cable Administration</span>
+              </div>
+            </div>
+
+            <button
+              id="special-admin-direct-login"
+              type="button"
+              onClick={handleSuperLogin}
+              className="w-full inline-flex justify-center py-3 px-4 border border-transparent rounded-[4px] bg-slate-900 text-white hover:bg-slate-800 text-xs font-bold uppercase tracking-widest transition-all cursor-pointer justify-center items-center gap-2 font-sans shadow-md mb-4"
+            >
+              <Shield className="h-4.5 w-4.5 text-blue-400 fill-blue-500/20" />
+              <span>SUPER ADMIN DIRECT ACCESS</span>
+            </button>
+
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-[#e2e8f0]" />
@@ -214,15 +296,15 @@ export function AuthPages({ onAuthSuccess, initialMode = 'login', onNavigate }: 
                 id="social-google-btn"
                 type="button"
                 onClick={() => {
-                  // Instant mockup login via Google
+                  // Instant mockup login via Google as premium admin
                   onAuthSuccess({
-                    id: 'usr-google',
-                    name: 'Nithyananthan Google',
+                    id: 'usr-1',
+                    name: 'Nithyananthan Nagarajan',
                     email: 'nithyananthannagarajan092@gmail.com',
-                    role: 'user',
+                    role: 'admin',
                     status: 'active',
                     createdAt: new Date().toISOString(),
-                    plan: 'pro'
+                    plan: 'enterprise'
                   });
                 }}
                 className="w-full inline-flex justify-center py-2.5 px-4 border border-[#e2e8f0] rounded-[4px] bg-white text-slate-700 text-xs font-bold uppercase tracking-wider hover:bg-slate-50 transition-colors cursor-pointer justify-center items-center gap-2 font-sans shadow-xxs"
@@ -233,7 +315,7 @@ export function AuthPages({ onAuthSuccess, initialMode = 'login', onNavigate }: 
                     d="M12.24 10.285V14.4h6.887c-.275 1.565-1.88 4.604-6.887 4.604-4.33 0-7.859-3.579-7.859-8s3.53-8 7.859-8c2.46 0 4.105 1.025 5.047 1.926l3.227-3.227C18.251 1.636 15.48.5 12.24.5 5.816.5.6 5.716.6 12.1s5.216 11.6 11.64 11.6c6.7 0 11.16-4.711 11.16-11.378 0-.765-.082-1.348-.182-2.037H12.24z"
                   />
                 </svg>
-                <span>Google</span>
+                <span>Google Admin</span>
               </button>
 
               <button
