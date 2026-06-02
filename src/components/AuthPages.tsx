@@ -15,22 +15,31 @@ export function AuthPages({ onAuthSuccess, initialMode = 'login', onNavigate }: 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [showPinPrompt, setShowPinPrompt] = useState(false);
+  const [pinVal, setPinVal] = useState('');
+  const [pinErr, setPinErr] = useState<string | null>(null);
 
-  const handleSuperLogin = () => {
-    setBusy(true);
-    setError(null);
-    setTimeout(() => {
-      onAuthSuccess({
-        id: 'usr-1',
-        name: 'Nithyananthan Nagarajan',
-        email: 'nithyananthannagarajan092@gmail.com',
-        role: 'admin',
-        status: 'active',
-        createdAt: new Date().toISOString(),
-        plan: 'enterprise'
-      });
-      setBusy(false);
-    }, 800);
+  const handleVerifyPin = () => {
+    if (pinVal === 'Nithya@Cable7' || pinVal === '9292') {
+      setBusy(true);
+      setError(null);
+      setPinErr(null);
+      setTimeout(() => {
+        onAuthSuccess({
+          id: 'usr-1',
+          name: 'Nithyananthan Nagarajan',
+          email: 'nithyananthannagarajan092@gmail.com',
+          role: 'admin',
+          status: 'active',
+          createdAt: new Date().toISOString(),
+          plan: 'enterprise'
+        });
+        setBusy(false);
+        setShowPinPrompt(false);
+      }, 600);
+    } else {
+      setPinErr('Incorrect Super Admin passcode.');
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -39,8 +48,15 @@ export function AuthPages({ onAuthSuccess, initialMode = 'login', onNavigate }: 
     setError(null);
     setMessage(null);
 
-    // Auto promote Nithyananthan to admin on any mode
-    const isNithyaEmail = email.toLowerCase() === 'nithyananthannagarajan092@gmail.com' || email.toLowerCase().includes('nithyana');
+    // Only exactly allow Nithyananthan admin email with correct credentials
+    const isNithyaEmail = email.toLowerCase() === 'nithyananthannagarajan092@gmail.com';
+    const isCorrectAdminPassword = password === 'Nithya@Cable7' || password === '9292';
+
+    if (isNithyaEmail && !isCorrectAdminPassword) {
+      setError('Incorrect password for Super Admin account.');
+      setBusy(false);
+      return;
+    }
 
     try {
       if (mode === 'login') {
@@ -51,8 +67,8 @@ export function AuthPages({ onAuthSuccess, initialMode = 'login', onNavigate }: 
         });
         const data = await res.json();
         if (!res.ok) {
-          // Fallback authorization for live Vercel deployments
-          if (isNithyaEmail) {
+          // Fallback authorization for live Vercel deployments (only if credentials are valid!)
+          if (isNithyaEmail && isCorrectAdminPassword) {
             onAuthSuccess({
               id: 'usr-1',
               name: 'Nithyananthan Nagarajan',
@@ -81,7 +97,7 @@ export function AuthPages({ onAuthSuccess, initialMode = 'login', onNavigate }: 
         });
         const data = await res.json();
         if (!res.ok) {
-          if (isNithyaEmail) {
+          if (isNithyaEmail && isCorrectAdminPassword) {
             onAuthSuccess({
               id: 'usr-1',
               name: name || 'Nithyananthan Nagarajan',
@@ -272,15 +288,60 @@ export function AuthPages({ onAuthSuccess, initialMode = 'login', onNavigate }: 
               </div>
             </div>
 
-            <button
-              id="special-admin-direct-login"
-              type="button"
-              onClick={handleSuperLogin}
-              className="w-full inline-flex justify-center py-3 px-4 border border-transparent rounded-[4px] bg-slate-900 text-white hover:bg-slate-800 text-xs font-bold uppercase tracking-widest transition-all cursor-pointer justify-center items-center gap-2 font-sans shadow-md mb-4"
-            >
-              <Shield className="h-4.5 w-4.5 text-blue-400 fill-blue-500/20" />
-              <span>SUPER ADMIN DIRECT ACCESS</span>
-            </button>
+            {showPinPrompt ? (
+              <div className="bg-slate-50 p-4 border border-slate-200 rounded-[4px] mb-4" id="admin-pin-prompt-box">
+                <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-2">Enter Super Admin Passcode / PIN</label>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={pinVal}
+                    onChange={(e) => {
+                      setPinVal(e.target.value);
+                      setPinErr(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleVerifyPin();
+                      }
+                    }}
+                    className="flex-1 px-3 py-2 border border-slate-200 bg-white rounded-[4px] text-xs font-bold uppercase tracking-widest focus:outline-none focus:ring-1 focus:ring-blue-600 focus:border-blue-600 animate-pulse-once"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleVerifyPin}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold uppercase tracking-wider rounded-[4px] cursor-pointer"
+                  >
+                    Verify
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPinPrompt(false);
+                      setPinVal('');
+                      setPinErr(null);
+                    }}
+                    className="px-3 py-2 border border-slate-200 text-slate-500 hover:bg-slate-100 text-[11px] font-bold uppercase tracking-wider rounded-[4px] cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                {pinErr && (
+                  <p className="mt-2 text-[10px] text-rose-600 font-bold uppercase tracking-wider">{pinErr}</p>
+                )}
+              </div>
+            ) : (
+              <button
+                id="special-admin-direct-login"
+                type="button"
+                onClick={() => setShowPinPrompt(true)}
+                className="w-full inline-flex justify-center py-3 px-4 border border-transparent rounded-[4px] bg-slate-900 text-white hover:bg-slate-800 text-xs font-bold uppercase tracking-widest transition-all cursor-pointer justify-center items-center gap-2 font-sans shadow-md mb-4 animate-bounce-once"
+              >
+                <Shield className="h-4.5 w-4.5 text-blue-400 fill-blue-500/20" />
+                <span>SUPER ADMIN DIRECT ACCESS</span>
+              </button>
+            )}
 
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
@@ -296,16 +357,20 @@ export function AuthPages({ onAuthSuccess, initialMode = 'login', onNavigate }: 
                 id="social-google-btn"
                 type="button"
                 onClick={() => {
-                  // Instant mockup login via Google as premium admin
-                  onAuthSuccess({
-                    id: 'usr-1',
-                    name: 'Nithyananthan Nagarajan',
-                    email: 'nithyananthannagarajan092@gmail.com',
-                    role: 'admin',
-                    status: 'active',
-                    createdAt: new Date().toISOString(),
-                    plan: 'enterprise'
-                  });
+                  const pin = prompt("Enter Super Admin Security Code to authenticate via Google Admin:");
+                  if (pin === 'Nithya@Cable7' || pin === '9292') {
+                    onAuthSuccess({
+                      id: 'usr-1',
+                      name: 'Nithyananthan Nagarajan',
+                      email: 'nithyananthannagarajan092@gmail.com',
+                      role: 'admin',
+                      status: 'active',
+                      createdAt: new Date().toISOString(),
+                      plan: 'enterprise'
+                    });
+                  } else {
+                    alert("Unauthorized. Correct Admin Passcode is required to log in as Google Admin.");
+                  }
                 }}
                 className="w-full inline-flex justify-center py-2.5 px-4 border border-[#e2e8f0] rounded-[4px] bg-white text-slate-700 text-xs font-bold uppercase tracking-wider hover:bg-slate-50 transition-colors cursor-pointer justify-center items-center gap-2 font-sans shadow-xxs"
               >

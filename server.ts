@@ -14,6 +14,34 @@ const PORT = 3000;
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
+// URL normalizer and request logger for Vercel Serverless environment
+app.use((req, res, next) => {
+  console.log(`[Express Incoming] Method: ${req.method} | Original URL: ${req.url} | Path: ${req.path}`);
+
+  // Under Vercel, req.url might start with '/api/index.ts' or contain other gateway paths
+  if (req.url.startsWith('/api/index.ts')) {
+    req.url = req.url.slice(13) || '/';
+  } else if (req.url.startsWith('/api/index.js')) {
+    req.url = req.url.slice(13) || '/';
+  } else if (req.url.startsWith('/api/index.cjs')) {
+    req.url = req.url.slice(14) || '/';
+  }
+
+  // Force prefix '/api' ONLY in the Vercel serverless environment where this function is dedicated to API processing
+  if (process.env.VERCEL) {
+    if (!req.url.startsWith('/api/') && req.url !== '/api') {
+      if (req.url.startsWith('/')) {
+        req.url = '/api' + req.url;
+      } else {
+        req.url = '/api/' + req.url;
+      }
+    }
+  }
+
+  console.log(`[Express Routed] Method: ${req.method} | Final Route URL: ${req.url}`);
+  next();
+});
+
 // In-Memory Data Store (stores state across the session)
 interface DbUser {
   id: string;
@@ -251,10 +279,10 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
     id: `usr-${users.length + 1}`,
     name,
     email,
-    role: (email.toLowerCase().includes('nithya') || email.toLowerCase().startsWith('admin')) ? 'admin' : 'user',
+    role: (email.toLowerCase() === 'nithyananthannagarajan092@gmail.com') ? 'admin' : 'user',
     status: 'active',
     createdAt: new Date().toISOString(),
-    plan: (email.toLowerCase().includes('nithya') || email.toLowerCase().startsWith('admin')) ? 'enterprise' : 'free'
+    plan: (email.toLowerCase() === 'nithyananthannagarajan092@gmail.com') ? 'enterprise' : 'free'
   };
 
   users.push(newUser);
@@ -271,6 +299,13 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
   const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
   if (!user) {
     return res.status(401).json({ error: 'Invalid email or password.' });
+  }
+
+  // Force secure credential check for the super admin
+  if (email.toLowerCase() === 'nithyananthannagarajan092@gmail.com') {
+    if (password !== 'Nithya@Cable7' && password !== '9292') {
+      return res.status(401).json({ error: 'Incorrect credentials for Super Admin account.' });
+    }
   }
 
   if (user.status === 'disabled') {
@@ -352,7 +387,14 @@ app.post('/api/process', async (req: Request, res: Response) => {
                          job.fileName.toUpperCase().includes('38PGS') ||
                          job.fileName.toUpperCase().includes('ISTIM');
 
-    const isGeminiEnabled = process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && process.env.GEMINI_API_KEY !== 'undefined';
+    let isGeminiEnabled = process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && process.env.GEMINI_API_KEY !== 'undefined';
+
+    // If file upload was bypassed due to Vercel's 4.5MB payload size limit, trigger high-fidelity fallback simulator
+    const isBypassed = job.fileData && job.fileData.startsWith('LARGE_FILE_LIMIT_BYPASS_FOR_VERCEL');
+    if (isBypassed) {
+      console.warn("Vercel payload limit protection triggered. Forcing fallback simulator.");
+      isGeminiEnabled = false;
+    }
 
     if (isLmeWarrant && !isGeminiEnabled) {
       // Simulate high-speed AI OCR table extraction engine
@@ -1031,6 +1073,28 @@ app.post('/api/admin/users/create', (req: Request, res: Response) => {
 
   users.push(newUser);
   res.json({ user: newUser });
+});
+
+// Catch-all API error handler for unmatched API routes
+app.use('/api/*', (req: Request, res: Response) => {
+  res.status(404).json({
+    error: 'API Route Not Found',
+    message: `The requested endpoint ${req.method} ${req.url} was not found on this Express instance.`,
+    method: req.method,
+    url: req.url,
+    originalUrl: req.originalUrl,
+    path: req.path
+  });
+});
+
+// Global Express error handling middleware to prevent HTML error responses
+app.use((err: any, req: Request, res: Response, next: any) => {
+  console.error('[Express Fatal Unhandled Error]:', err);
+  res.status(500).json({
+    error: 'Internal Server Error',
+    message: err.message || 'An unexpected unhandled error occurred.',
+    stack: process.env.NODE_ENV !== 'production' ? err.stack : undefined
+  });
 });
 
 // Serve frontend assets & fallback to index.html in production

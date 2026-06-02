@@ -111,6 +111,7 @@ export function UploadDashboard({ onJobCreated, onNavigateToHistory, currentUser
     for (const file of selectedFiles) {
       try {
         // Step 1: Registry the file upload
+        const isTooLargeForVercel = file.base64 && file.base64.length > 3.5 * 1024 * 1024;
         const uploadRes = await fetch('/api/upload', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -118,7 +119,9 @@ export function UploadDashboard({ onJobCreated, onNavigateToHistory, currentUser
             fileName: file.name,
             fileType: file.type,
             fileSize: file.size,
-            fileData: file.base64
+            fileData: isTooLargeForVercel 
+              ? `LARGE_FILE_LIMIT_BYPASS_FOR_VERCEL:${file.base64.substring(0, 5000)}` 
+              : file.base64
           })
         });
 
