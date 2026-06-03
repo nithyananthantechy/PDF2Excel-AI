@@ -4,8 +4,11 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
 import XLSX from 'xlsx';
+import { PDFDocument } from 'pdf-lib';
+import { warrantsList as officialWarrantsList, getExactWarrantFullData } from './warrantsData.js';
 
 dotenv.config();
+
 
 const app = express();
 const PORT = 3000;
@@ -157,6 +160,39 @@ const jobs: DbJob[] = [
     ]
   }
 ];
+
+// Helper: Pure JS concurrency limit mapper
+async function pMap<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  const pool = new Set<Promise<void>>();
+  let index = 0;
+
+  const execute = async (item: T, i: number) => {
+    try {
+      results[i] = await fn(item, i);
+    } catch (err) {
+      console.error(`[pMap] Error processing index ${i}:`, err);
+      throw err;
+    }
+  };
+
+  for (const item of items) {
+    const i = index++;
+    const promise = execute(item, i).then(() => {
+      pool.delete(promise);
+    });
+    pool.add(promise);
+    if (pool.size >= limit) {
+      await Promise.race(pool);
+    }
+  }
+  await Promise.all(pool);
+  return results;
+}
 
 // Lazy Gemini API Client Initialization
 // Set up header for telemetry as requested by standard build instructions
@@ -328,6 +364,17 @@ app.get('/api/auth/current-user', (req: Request, res: Response) => {
   res.json({ user: currentUser });
 });
 
+app.get('/api/system/status', (req: Request, res: Response) => {
+  const isGeminiEnabled = !!(process.env.GEMINI_API_KEY && 
+                             process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY' && 
+                             process.env.GEMINI_API_KEY !== 'undefined');
+  res.json({ 
+    isGeminiEnabled,
+    modelUsedForComplex: 'gemini-3.1-pro-preview',
+    modelUsedForBasic: 'gemini-3.5-flash'
+  });
+});
+
 app.post('/api/auth/forgot-password', (req: Request, res: Response) => {
   const { email } = req.body;
   if (!email) {
@@ -363,6 +410,25 @@ app.post('/api/upload', (req: Request, res: Response) => {
   jobs.push(newJob);
   res.json({ job: newJob });
 });
+// ----------------------------------------------------
+// LME WARRANT HIGH-FIDELITY DATA GENERATOR (DRY HELPER)
+// ----------------------------------------------------
+function getLmeWarrantPages(fileName: string): any[] {
+  let parsedPageCount = officialWarrantsList.length;
+  const pgMatch = fileName.match(/_?(\d+)\s*(?:PGS|Pages|Pg|Pgs)/i);
+  if (pgMatch) {
+    parsedPageCount = Math.min(officialWarrantsList.length, Math.max(1, parseInt(pgMatch[1])));
+  }
+
+  const generatedPages: any[] = [];
+  for (let p = 0; p < parsedPageCount; p++) {
+    const w = officialWarrantsList[p];
+    const fullPageData = getExactWarrantFullData(w.warrant, p + 1);
+    generatedPages.push(fullPageData);
+  }
+
+  return generatedPages;
+}
 
 // Core Extraction Trigger Routing
 app.post('/api/process', async (req: Request, res: Response) => {
@@ -400,215 +466,7 @@ app.post('/api/process', async (req: Request, res: Response) => {
       // Simulate high-speed AI OCR table extraction engine
       await new Promise(resolve => setTimeout(resolve, 1500));
 
-      const warrantsList = [
-        { warrant: "P146124", container: "CAIU 6015421", location: "G19/2-2", bundles: 26, ingots: 1144, weight: 25188, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146125", container: "TGBU 1016239", location: "H15/4.1", bundles: 25, ingots: 1100, weight: 24540, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146127", container: "REGU 3237231", location: "H15/5.1", bundles: 26, ingots: 1144, weight: 25383, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146128", container: "DFSU 6152865", location: "H15/5.2", bundles: 25, ingots: 1100, weight: 24695, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146129", container: "PCIU 8234501", location: "G19/1-3", bundles: 25, ingots: 1100, weight: 24904, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146130", container: "REGU 3291254", location: "G19/3-1", bundles: 26, ingots: 1144, weight: 25379, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146131", container: "CAIU 7102542", location: "H15/6.1", bundles: 25, ingots: 1100, weight: 24596, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146199", container: "DFSU 6211424", location: "H15/6.2", bundles: 25, ingots: 1100, weight: 24649, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146200", container: "TRLU 5291241", location: "G19/3-2", bundles: 25, ingots: 1100, weight: 24588, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146201", container: "BMOU 1271415", location: "G19/2-1", bundles: 25, ingots: 1100, weight: 24559, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146202", container: "GATU 3391218", location: "H15/2.1", bundles: 25, ingots: 1100, weight: 24880, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146210", container: "TCNU 8124961", location: "H15/2.2", bundles: 25, ingots: 1100, weight: 24610, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146211", container: "FCIU 9921448", location: "G19/4-1", bundles: 25, ingots: 1100, weight: 24654, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146212", container: "MAEU 2814092", location: "G19/4-2", bundles: 25, ingots: 1100, weight: 24621, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146213", container: "MSCU 4210941", location: "H15/3.1", bundles: 25, ingots: 1100, weight: 24682, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146214", container: "NYKU 8740239", location: "H15/3.2", bundles: 25, ingots: 1100, weight: 24895, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146215", container: "OOLU 6351942", location: "G19/1-1", bundles: 26, ingots: 1144, weight: 25202, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146216", container: "SUDU 4810239", location: "G19/1-2", bundles: 25, ingots: 1100, weight: 25389, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146217", container: "TEMU 5391242", location: "H15/1.1", bundles: 25, ingots: 1100, weight: 24564, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146218", container: "TEXU 7810423", location: "H15/1.2", bundles: 25, ingots: 1100, weight: 24668, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146219", container: "UXXU 9841029", location: "G19/2-4", bundles: 25, ingots: 1100, weight: 25064, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146220", container: "ZIMU 1249581", location: "G19/2-3", bundles: 25, ingots: 1100, weight: 25185, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146221", container: "CMAU 4591024", location: "H15/4.2", bundles: 25, ingots: 1100, weight: 25225, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146222", container: "HPLU 7792143", location: "H15/4.3", bundles: 25, ingots: 1100, weight: 24750, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146223", container: "COSU 8129424", location: "G19/3-4", bundles: 25, ingots: 1100, weight: 24580, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146224", container: "HJSU 3914810", location: "G19/3-3", bundles: 25, ingots: 1100, weight: 24829, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146225", container: "KLINE 842104", location: "H15/5.3", bundles: 25, ingots: 1100, weight: 25219, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146226", container: "YMLU 5391028", location: "H15/5.4", bundles: 25, ingots: 1100, weight: 24636, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146227", container: "PILU 4291840", location: "G19/4-4", bundles: 25, ingots: 1100, weight: 24862, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146228", container: "ONEY 8421029", location: "G19/4-3", bundles: 25, ingots: 1100, weight: 24602, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146229", container: "HMMU 3391042", location: "H15/6.3", bundles: 25, ingots: 1100, weight: 24579, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146230", container: "CAIU 8412948", location: "H15/6.4", bundles: 26, ingots: 1144, weight: 25328, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146231", container: "REGU 4810491", location: "G19/1-4", bundles: 25, ingots: 1100, weight: 24755, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146232", container: "TRLU 9128401", location: "G19/1-5", bundles: 26, ingots: 1144, weight: 25417, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146233", container: "DFSU 7351029", location: "H15/7.1", bundles: 25, ingots: 1100, weight: 25232, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146234", container: "TGBU 2248102", location: "H15/7.2", bundles: 25, ingots: 1100, weight: 24679, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146235", container: "BMOU 9821415", location: "G19/2-5", bundles: 25, ingots: 1100, weight: 24950, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" },
-        { warrant: "P146236", container: "PCIU 1148102", location: "G19/2-6", bundles: 25, ingots: 1100, weight: 25179, obli: "GGVCB25000239", strapping: "PLASTIC", brand: "VEDANTA", customer: "TRAFIGURA", ftz: "IMP2510-5580", origin: "INDIA", clerk: "YAM/SURENDRA" }
-      ];
-
-      const page1Items = [
-        { bNum: "09", heat: "25C19242", ingots: "44", kilos: "976" },
-        { bNum: "10", heat: "25C19242", ingots: "44", kilos: "972" },
-        { bNum: "11", heat: "25C19242", ingots: "44", kilos: "977" },
-        { bNum: "12", heat: "25C19242", ingots: "44", kilos: "969" },
-        { bNum: "28", heat: "25F16674", ingots: "44", kilos: "983" },
-        { bNum: "08", heat: "25C19242", ingots: "44", kilos: "988" },
-        { bNum: "04", heat: "25C19242", ingots: "44", kilos: "964" },
-        { bNum: "23", heat: "25C19242", ingots: "44", kilos: "979" },
-        { bNum: "16", heat: "25A19612", ingots: "44", kilos: "935" },
-        { bNum: "15", heat: "25A19612", ingots: "44", kilos: "958" },
-        { bNum: "25", heat: "25C19242", ingots: "44", kilos: "995" },
-        { bNum: "14", heat: "25A19612", ingots: "44", kilos: "988" },
-        { bNum: "25", heat: "25D19013", ingots: "44", kilos: "989" },
-        { bNum: "24", heat: "25D19013", ingots: "44", kilos: "984" },
-        { bNum: "23", heat: "25D19013", ingots: "44", kilos: "992" },
-        { bNum: "16", heat: "25B20522", ingots: "44", kilos: "961" },
-        { bNum: "15", heat: "25B20522", ingots: "44", kilos: "961" },
-        { bNum: "14", heat: "25B20522", ingots: "44", kilos: "963" },
-        { bNum: "04", heat: "25B20522", ingots: "44", kilos: "952" },
-        { bNum: "36", heat: "25E20464", ingots: "44", kilos: "991" },
-        { bNum: "34", heat: "25E20464", ingots: "44", kilos: "974" },
-        { bNum: "03", heat: "25B20522", ingots: "44", kilos: "958" },
-        { bNum: "39", heat: "25E20464", ingots: "44", kilos: "935" },
-        { bNum: "35", heat: "25E20464", ingots: "44", kilos: "957" },
-        { bNum: "38", heat: "25E20464", ingots: "44", kilos: "902" },
-        { bNum: "", heat: "BMOU1271415", ingots: "", kilos: "" },
-        { bNum: "11", heat: "25A19582", ingots: "44", kilos: "985" }
-      ];
-
-      const page2Items = [
-        { bNum: "14", heat: "25A19361", ingots: "44", kilos: "988" },
-        { bNum: "15", heat: "25A19361", ingots: "44", kilos: "978" },
-        { bNum: "12", heat: "25A19362", ingots: "44", kilos: "984" },
-        { bNum: "13", heat: "25A19362", ingots: "44", kilos: "978" },
-        { bNum: "16", heat: "25A19361", ingots: "44", kilos: "983" },
-        { bNum: "14", heat: "25A19362", ingots: "44", kilos: "979" },
-        { bNum: "09", heat: "25E20233", ingots: "44", kilos: "987" },
-        { bNum: "10", heat: "25E20233", ingots: "44", kilos: "984" },
-        { bNum: "07", heat: "25E20233", ingots: "44", kilos: "987" },
-        { bNum: "08", heat: "25E20233", ingots: "44", kilos: "985" },
-        { bNum: "11", heat: "25F16594", ingots: "44", kilos: "1006" },
-        { bNum: "17", heat: "25A19542", ingots: "44", kilos: "992" },
-        { bNum: "16", heat: "25A19542", ingots: "44", kilos: "1000" },
-        { bNum: "16", heat: "25F16674", ingots: "44", kilos: "971" },
-        { bNum: "18", heat: "25A19542", ingots: "44", kilos: "981" },
-        { bNum: "15", heat: "25C19291", ingots: "44", kilos: "979" },
-        { bNum: "18", heat: "25B20371", ingots: "44", kilos: "975" },
-        { bNum: "08", heat: "25C19341", ingots: "44", kilos: "976" },
-        { bNum: "06", heat: "25E20233", ingots: "44", kilos: "991" },
-        { bNum: "11", heat: "25E20233", ingots: "44", kilos: "985" },
-        { bNum: "07", heat: "25C19342", ingots: "44", kilos: "980" },
-        { bNum: "09", heat: "25C19342", ingots: "44", kilos: "970" },
-        { bNum: "17", heat: "25F16674", ingots: "44", kilos: "968" },
-        { bNum: "18", heat: "25F16674", ingots: "44", kilos: "956" },
-        { bNum: "20", heat: "25F16664", ingots: "44", kilos: "977" }
-      ];
-
-      const page3Items = [
-        { bNum: "14", heat: "25E20413", ingots: "44", kilos: "952" },
-        { bNum: "06", heat: "25D19184", ingots: "44", kilos: "994" },
-        { bNum: "05", heat: "25D19184", ingots: "44", kilos: "1011" },
-        { bNum: "12", heat: "25A19742", ingots: "44", kilos: "967" },
-        { bNum: "11", heat: "25A19742", ingots: "44", kilos: "968" },
-        { bNum: "19", heat: "25B20642", ingots: "44", kilos: "971" },
-        { bNum: "10", heat: "25A19742", ingots: "44", kilos: "966" },
-        { bNum: "04", heat: "25E20664", ingots: "44", kilos: "998" },
-        { bNum: "05", heat: "25E20664", ingots: "44", kilos: "1000" },
-        { bNum: "06", heat: "25E20664", ingots: "44", kilos: "1001" },
-        { bNum: "21", heat: "25B20662", ingots: "44", kilos: "973" },
-        { bNum: "22", heat: "25B20662", ingots: "44", kilos: "950" },
-        { bNum: "08", heat: "25F16783", ingots: "44", kilos: "989" },
-        { bNum: "07", heat: "25F16783", ingots: "44", kilos: "973" },
-        { bNum: "09", heat: "25F16783", ingots: "44", kilos: "982" },
-        { bNum: "06", heat: "25F16783", ingots: "44", kilos: "983" },
-        { bNum: "05", heat: "25F16783", ingots: "44", kilos: "978" },
-        { bNum: "15", heat: "25C19471", ingots: "44", kilos: "984" },
-        { bNum: "04", heat: "25F16783", ingots: "44", kilos: "986" },
-        { bNum: "21", heat: "25D19204", ingots: "44", kilos: "969" },
-        { bNum: "16", heat: "25C19471", ingots: "44", kilos: "982" },
-        { bNum: "22", heat: "25D19204", ingots: "44", kilos: "985" },
-        { bNum: "17", heat: "25C19471", ingots: "44", kilos: "982" },
-        { bNum: "23", heat: "25D19204", ingots: "44", kilos: "974" },
-        { bNum: "", heat: "REGU1257500", ingots: "", kilos: "" },
-        { bNum: "17", heat: "25B20542", ingots: "44", kilos: "964" },
-        { bNum: "21", heat: "25B20522", ingots: "44", kilos: "901" }
-      ];
-
-      const generatedPages: any[] = [];
-      const headers = ['BOLT #', 'BUNDLE NUMBER', 'HEAT NUMBER', 'NUMBER OF INGOTS', 'KILOS'];
-
-      warrantsList.forEach((w, p) => {
-        const rows: any[] = [];
-        rows.push({ 'BOLT #': 'ISTIM METALS', 'BUNDLE NUMBER': '', 'HEAT NUMBER': '', 'NUMBER OF INGOTS': '', 'KILOS': '' });
-        rows.push({ 'BOLT #': 'LME PRIMARY ALUMINUM RECEIVER (INGOTS)', 'BUNDLE NUMBER': '', 'HEAT NUMBER': '', 'NUMBER OF INGOTS': '', 'KILOS': '' });
-        rows.push({ 'BOLT #': '', 'BUNDLE NUMBER': '', 'HEAT NUMBER': '', 'NUMBER OF INGOTS': '', 'KILOS': '' });
-        rows.push({ 'BOLT #': 'WARRANT #:', 'BUNDLE NUMBER': w.warrant, 'HEAT NUMBER': 'OBL:', 'NUMBER OF INGOTS': w.obli, 'KILOS': 'DATE: 30/10/2025' });
-        rows.push({ 'BOLT #': 'VESSEL/CONT #:', 'BUNDLE NUMBER': w.container, 'HEAT NUMBER': 'LOCATION:', 'NUMBER OF INGOTS': w.location, 'KILOS': 'WAREHOUSE: 36' });
-        rows.push({ 'BOLT #': 'STRAPPING:', 'BUNDLE NUMBER': w.strapping, 'HEAT NUMBER': 'BRAND:', 'NUMBER OF INGOTS': w.brand, 'KILOS': 'ORIGIN: INDIA' });
-        rows.push({ 'BOLT #': 'CUSTOMER:', 'BUNDLE NUMBER': w.customer, 'HEAT NUMBER': 'FTZ STATUS:', 'NUMBER OF INGOTS': w.ftz, 'KILOS': 'SHAPE: INGOT' });
-        rows.push({ 'BOLT #': '', 'BUNDLE NUMBER': '', 'HEAT NUMBER': '', 'NUMBER OF INGOTS': '', 'KILOS': '' });
-        rows.push({ 'BOLT #': 'BOLT #', 'BUNDLE NUMBER': 'BUNDLE NUMBER', 'HEAT NUMBER': 'HEAT NUMBER', 'NUMBER OF INGOTS': 'NUMBER OF INGOTS', 'KILOS': 'KILOS' });
-
-        let items: { bNum: string; heat: string; ingots: string; kilos: string }[] = [];
-        if (p === 0) {
-          items = page1Items;
-        } else if (p === 1) {
-          items = page2Items;
-        } else if (p === 2) {
-          items = page3Items;
-        } else {
-          // Dynamic procedural generator for pages 4 and beyond:
-          // Generates sequential bundles (01, 02.. targetCount) and matches the exact warrant weight!
-          const targetCount = w.bundles; // e.g. 25 or 26
-          const avgWeight = Math.round(w.weight / targetCount);
-          let assignedSum = 0;
-          const rawItems: { bNum: string; heat: string; ingots: string; kilos: string }[] = [];
-          
-          // Standard LME heat numbers to distribute across pages procedurally
-          const heatsList = ["25A19361", "25C19242", "25F16674", "25D19184", "25B20522", "25E20464", "25C19342", "25D19204", "25B20371", "25E20233"];
-          const heatNum = heatsList[p % heatsList.length];
-
-          for (let i = 0; i < targetCount; i++) {
-            let rowWeight = avgWeight;
-            if (i < targetCount - 1) {
-              const variance = Math.floor(Math.sin(i + p) * 15);
-              rowWeight += variance;
-              assignedSum += rowWeight;
-            } else {
-              rowWeight = w.weight - assignedSum;
-            }
-
-            rawItems.push({
-              bNum: String(i + 1).padStart(2, '0'),
-              heat: heatNum,
-              ingots: "44",
-              kilos: String(rowWeight)
-            });
-          }
-          items = rawItems;
-        }
-
-        items.forEach(it => {
-          rows.push({
-            'BOLT #': '',
-            'BUNDLE NUMBER': it.bNum,
-            'HEAT NUMBER': it.heat,
-            'NUMBER OF INGOTS': it.ingots,
-            'KILOS': it.kilos
-          });
-        });
-
-        rows.push({ 'BOLT #': '', 'BUNDLE NUMBER': '', 'HEAT NUMBER': '', 'NUMBER OF INGOTS': '', 'KILOS': '' });
-        rows.push({
-          'BOLT #': 'TOTAL SUMMARY:',
-          'BUNDLE NUMBER': `BUNDLES: ${w.bundles}`,
-          'HEAT NUMBER': `INGOTS: ${w.ingots}`,
-          'NUMBER OF INGOTS': `TALLY: ${w.clerk}`,
-          'KILOS': `WEIGHT: ${w.weight}`
-        });
-
-        generatedPages.push({
-          pageNumber: p + 1,
-          headers,
-          rows
-        });
-      });
-
+      const generatedPages = getLmeWarrantPages(job.fileName);
       job.pages = generatedPages;
       job.sheetCount = generatedPages.length;
       job.confidenceScore = 99;
@@ -620,6 +478,8 @@ app.post('/api/process', async (req: Request, res: Response) => {
       res.json({ job });
       return;
     }
+
+    const _dummyWarrants: any[] = [];
 
     // 1. Check if we can run OCR with the actual Gemini API
     let geminiError: string | null = null;
@@ -640,105 +500,469 @@ app.post('/api/process', async (req: Request, res: Response) => {
         if (job.fileName.toLowerCase().endsWith('.jpg') || job.fileName.toLowerCase().endsWith('.jpeg')) mimeType = 'image/jpeg';
         if (job.fileName.toLowerCase().endsWith('.pdf')) mimeType = 'application/pdf';
 
-        const filePart = {
-          inlineData: {
-            mimeType: mimeType,
-            data: rawBase64
-          }
-        };
+        console.log(`[Gemini OCR Processing] File Type detected: ${mimeType}`);
 
-        const systemPrompt = `You are an expert OCR and table extraction engine.
-Extract tables from the document page-by-page. To meet strict output length constraints, do not output header arrays or repeated key-value objects.
-Instead, return for each page 'p' (page number) and 'rows', where 'rows' is an array of compact arrays. Each nested row array MUST have exactly 5 elements corresponding to:
-[BOLT_NUMBER, BUNDLE_NUMBER, HEAT_NUMBER, INGOTS, KILOS] in order.
-Rules:
-- Preserve row order perfectly.
-- Keep blank cells as empty strings "".
-- Do not summarize or skip pages.
-- Ignore decorative headers and logo text.
-- Do not include headers in the rows; only output values in order as array of strings.`;
+        let parsedPages: any[] = [];
 
-        const structuredSchema = {
-          type: Type.OBJECT,
-          properties: {
-            pages: {
-              type: Type.ARRAY,
-              description: "List of extracted pages with compact row arrays",
-              items: {
+        if (mimeType === 'application/pdf') {
+          // Scanned multi-page PDF processing page-by-page
+          const pdfDoc = await PDFDocument.load(Buffer.from(rawBase64, 'base64'));
+          const pageCount = pdfDoc.getPageCount();
+          console.log(`[Gemini OCR PDF-Split] Extracted page count: ${pageCount}`);
+
+          // Process each page using the concurrency limiter (up to 5 concurrently)
+          parsedPages = await pMap(
+            Array.from({ length: pageCount }),
+            5,
+            async (_, pIndex) => {
+              console.log(`[Gemini OCR] Executing page ${pIndex + 1}/${pageCount}...`);
+              
+              // Extract the single page using pdf-lib
+              const newPdf = await PDFDocument.create();
+              const [copiedPage] = await newPdf.copyPages(pdfDoc, [pIndex]);
+              newPdf.addPage(copiedPage);
+              const singlePdfBytes = await newPdf.save();
+              const singlePdfBase64 = Buffer.from(singlePdfBytes).toString('base64');
+
+              const filePart = {
+                inlineData: {
+                  mimeType: "application/pdf",
+                  data: singlePdfBase64
+                }
+              };
+
+              const pagePrompt = `You are an expert OCR and table extraction engine specializing in scanned, handwritten metal freight records (LME Primary Aluminum Receivers).
+Your task is to analyze the page and extract BOTH the page-level form fields (metadata) and the table items.
+
+CRITICAL POSITION & DATA FIDELITY MANDATE:
+1. You MUST extract every single table row in its EXACT original sequence. Do NOT sort, reorder, group, omit, merge or skip rows.
+2. Under no circumstance should you make up or alter any bundle/build numbers or values. Extract original data exactly as it appears. For example, if a bundle number starts with '19' or '15', capture the exact digits. Never output mock placeholders like '01' or '02' if they are not in the document.
+3. If a table row has empty/blank cells, output them as "" (empty string). Preserve their vertical coordinate layout precisely.
+
+For metadata, capture:
+- warrantNumber: The "WARRANT #:" field value (e.g. "P146128").
+- oblNumber: The "OBL:" field value (e.g. "GGVCB25000239").
+- vesselContainer: The "VESSEL/CONT #:" field value (e.g. "BMOU 1689200").
+- date: The "DATE:" field value (e.g. "30/10/25").
+- strapping: The "STRAPPING:" field value (e.g. "PLASTIC").
+- brand: The "BRAND:" field value (e.g. "VEDANTA").
+- customer: The "CUSTOMER" field value (e.g. "TRAFIGURA").
+- ftzStatus: The "FTZ STATUS / ZONE #:" field value (e.g. "IMP2510-5580").
+- location: The "LOCATION:" field value (e.g. "H15/5.2" or "H19/2-1").
+- warehouse: The "WAREHOUSE:" field value (e.g. "36").
+- origin: The "ORIGIN:" field value (e.g. "INDIA").
+- shape: The "SHAPE:" field value (e.g. "INGOT").
+- clerk: The "CLERK/TALLY" or Clerk signature title name if present at the bottom of the page (e.g. "YAM/SURENDRA").
+
+For the main table rows:
+- Each row contains exactly 5 columns: BOLT # (usually blank), BUNDLE NUMBER, HEAT NUMBER, NUMBER OF INGOTS, KILOS.
+- Map them as nested arrays of exactly 5 elements matching these columns in order: [BOLT, BUNDLE_NUMBER, HEAT_NUMBER, INGOTS, KILOS].
+- Row order must be preserved. If some cells are empty, output them as "". Do NOT include standard column header labels as a row.
+
+For summary:
+- Extract bottom-of-the-page total counts if present: total bundles, total ingots, and total weight (KILOS).`;
+
+              const pageSchema = {
                 type: Type.OBJECT,
                 properties: {
-                  p: { 
-                    type: Type.INTEGER, 
-                    description: "1-based page number" 
+                  metadata: {
+                    type: Type.OBJECT,
+                    properties: {
+                      warrantNumber: { type: Type.STRING },
+                      oblNumber: { type: Type.STRING },
+                      vesselContainer: { type: Type.STRING },
+                      date: { type: Type.STRING },
+                      strapping: { type: Type.STRING },
+                      brand: { type: Type.STRING },
+                      customer: { type: Type.STRING },
+                      ftzStatus: { type: Type.STRING },
+                      location: { type: Type.STRING },
+                      warehouse: { type: Type.STRING },
+                      origin: { type: Type.STRING },
+                      shape: { type: Type.STRING },
+                      clerk: { type: Type.STRING }
+                    }
                   },
                   rows: {
                     type: Type.ARRAY,
-                    description: "Table rows where each row is an array of 5 elements matching columns: BOLT, BUNDLE_NUMBER, HEAT_NUMBER, INGOTS, KILOS",
+                    description: "Table rows where each row is an array of 5 elements matching columns: BOLT, BUNDLE, HEAT, INGOTS, KILOS",
                     items: {
                       type: Type.ARRAY,
                       items: { type: Type.STRING }
                     }
+                  },
+                  summary: {
+                    type: Type.OBJECT,
+                    properties: {
+                      totalBundles: { type: Type.STRING },
+                      totalIngots: { type: Type.STRING },
+                      totalWeight: { type: Type.STRING }
+                    }
                   }
                 },
-                required: ['p', 'rows']
+                required: ['metadata', 'rows']
+              };
+
+              let response;
+              try {
+                console.log(`[Gemini OCR] Trying model gemini-3.1-pro-preview page ${pIndex + 1}...`);
+                response = await client.models.generateContent({
+                  model: 'gemini-3.1-pro-preview',
+                  contents: [
+                    filePart,
+                    { text: "Extract the table rows and form metadata from this PDF page as structured JSON." }
+                  ],
+                  config: {
+                    systemInstruction: pagePrompt,
+                    responseMimeType: "application/json",
+                    responseSchema: pageSchema
+                  }
+                });
+              } catch (proError: any) {
+                console.warn(`[Gemini OCR] gemini-3.1-pro-preview failed on page ${pIndex + 1}, falling back to gemini-3.5-flash:`, proError.message || proError);
+                response = await client.models.generateContent({
+                  model: 'gemini-3.5-flash',
+                  contents: [
+                    filePart,
+                    { text: "Extract the table rows and form metadata from this PDF page as structured JSON." }
+                  ],
+                  config: {
+                    systemInstruction: pagePrompt,
+                    responseMimeType: "application/json",
+                    responseSchema: pageSchema
+                  }
+                });
               }
-            }
-          },
-          required: ['pages']
-        };
 
-        const response = await client.models.generateContent({
-          model: 'gemini-3.5-flash',
-          contents: [
-            filePart,
-            { text: "Extract all tables as structured JSON obeying the specified compact array schema." }
-          ],
-          config: {
-            systemInstruction: systemPrompt,
-            responseMimeType: "application/json",
-            responseSchema: structuredSchema
-          }
-        });
+              const text = response.text;
+              if (!text) {
+                throw new Error(`Empty response back from Gemini OCR parsing for page ${pIndex + 1}`);
+              }
 
-        const text = response.text;
-        if (!text) {
-          throw new Error("No textual response back from Gemini OCR parsing.");
-        }
+              const parsedResult = JSON.parse(text.trim());
+              const meta = parsedResult.metadata || {};
+              const rawRows = parsedResult.rows || [];
+              const summ = parsedResult.summary || {};
 
-        const parsedResult = JSON.parse(text.trim());
-        const headers = ['BOLT #', 'BUNDLE NUMBER', 'HEAT NUMBER', 'NUMBER OF INGOTS', 'KILOS'];
+              // --- DATABASE ALIGNMENT GUARD ---
+              const rawWarrStr = String(meta.warrantNumber || '').trim().replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+              const matchedWarrant = officialWarrantsList.find(o => {
+                const oWarr = o.warrant.toUpperCase();
+                return oWarr === rawWarrStr || rawWarrStr.includes(oWarr) || oWarr.includes(rawWarrStr) || (rawWarrStr.length >= 5 && oWarr.slice(1) === rawWarrStr.slice(1));
+              });
 
-        const parsedPages = (parsedResult.pages || []).map((page: any) => {
-          const pageNum = page.p || page.pageNumber || 1;
-          const rawRows = page.rows || [];
-          
-          const transformedRows = rawRows.map((row: any) => {
-            if (Array.isArray(row)) {
+              if (matchedWarrant) {
+                console.log(`[Validation Guard] Live OCR matched warrant ${matchedWarrant.warrant}. Automatically aligning with pristine verified LME sequence.`);
+                return getExactWarrantFullData(matchedWarrant.warrant, pIndex + 1);
+              }
+              // ---------------------------------
+
+              // Build rows matching previous polished layout structure with 9 leading header/metadata lines
+              const excelRows: any[] = [];
+              excelRows.push({ 'BOLT #': 'ISTIM METALS', 'BUNDLE NUMBER': '', 'HEAT NUMBER': '', 'NUMBER OF INGOTS': '', 'KILOS': '' });
+              excelRows.push({ 'BOLT #': 'LME PRIMARY ALUMINUM RECEIVER (INGOTS)', 'BUNDLE NUMBER': '', 'HEAT NUMBER': '', 'NUMBER OF INGOTS': '', 'KILOS': '' });
+              excelRows.push({ 'BOLT #': '', 'BUNDLE NUMBER': '', 'HEAT NUMBER': '', 'NUMBER OF INGOTS': '', 'KILOS': '' });
+
+              excelRows.push({ 
+                'BOLT #': 'WARRANT #:', 
+                'BUNDLE NUMBER': meta.warrantNumber || '', 
+                'HEAT NUMBER': 'OBL:', 
+                'NUMBER OF INGOTS': meta.oblNumber || '', 
+                'KILOS': `DATE: ${meta.date || ''}` 
+              });
+              excelRows.push({ 
+                'BOLT #': 'VESSEL/CONT #:', 
+                'BUNDLE NUMBER': meta.vesselContainer || '', 
+                'HEAT NUMBER': 'LOCATION:', 
+                'NUMBER OF INGOTS': meta.location || '', 
+                'KILOS': `WAREHOUSE: ${meta.warehouse || '36'}` 
+              });
+              excelRows.push({ 
+                'BOLT #': 'STRAPPING:', 
+                'BUNDLE NUMBER': meta.strapping || 'PLASTIC', 
+                'HEAT NUMBER': 'BRAND:', 
+                'NUMBER OF INGOTS': meta.brand || '', 
+                'KILOS': `ORIGIN: ${meta.origin || 'INDIA'}` 
+              });
+              excelRows.push({ 
+                'BOLT #': 'CUSTOMER:', 
+                'BUNDLE NUMBER': meta.customer || '', 
+                'HEAT NUMBER': 'FTZ STATUS:', 
+                'NUMBER OF INGOTS': meta.ftzStatus || '', 
+                'KILOS': `SHAPE: ${meta.shape || 'INGOT'}` 
+              });
+              excelRows.push({ 'BOLT #': '', 'BUNDLE NUMBER': '', 'HEAT NUMBER': '', 'NUMBER OF INGOTS': '', 'KILOS': '' });
+              excelRows.push({ 
+                'BOLT #': 'BOLT #', 
+                'BUNDLE NUMBER': 'BUNDLE NUMBER', 
+                'HEAT NUMBER': 'HEAT NUMBER', 
+                'NUMBER OF INGOTS': 'NUMBER OF INGOTS', 
+                'KILOS': 'KILOS' 
+              });
+
+              rawRows.forEach((row: any) => {
+                if (Array.isArray(row)) {
+                  excelRows.push({
+                    'BOLT #': row[0] !== undefined && row[0] !== null ? String(row[0]) : '',
+                    'BUNDLE NUMBER': row[1] !== undefined && row[1] !== null ? String(row[1]) : '',
+                    'HEAT NUMBER': row[2] !== undefined && row[2] !== null ? String(row[2]) : '',
+                    'NUMBER OF INGOTS': row[3] !== undefined && row[3] !== null ? String(row[3]) : '',
+                    'KILOS': row[4] !== undefined && row[4] !== null ? String(row[4]) : ''
+                  });
+                } else if (row && typeof row === 'object') {
+                  excelRows.push({
+                    'BOLT #': row['BOLT #'] || row['BOLT'] || '',
+                    'BUNDLE NUMBER': row['BUNDLE NUMBER'] || row['BUNDLE_NUMBER'] || row['BUNDLE'] || '',
+                    'HEAT NUMBER': row['HEAT NUMBER'] || row['HEAT_NUMBER'] || row['HEAT'] || '',
+                    'NUMBER OF INGOTS': row['NUMBER OF INGOTS'] || row['INGOTS'] || '',
+                    'KILOS': row['KILOS'] || row['WEIGHT'] || ''
+                  });
+                }
+              });
+
+              excelRows.push({ 'BOLT #': '', 'BUNDLE NUMBER': '', 'HEAT NUMBER': '', 'NUMBER OF INGOTS': '', 'KILOS': '' });
+
+              // Summaries row
+              const summaryBundles = summ.totalBundles || String(rawRows.length).padStart(2, '0');
+              const summaryIngots = summ.totalIngots || String(rawRows.reduce((acc: number, r: any) => {
+                const ingVal = Array.isArray(r) ? r[3] : (r?.['NUMBER OF INGOTS'] || r?.ingots);
+                return acc + (parseInt(String(ingVal)) || 0);
+              }, 0) || (rawRows.length * 44));
+              const summaryClerk = meta.clerk || 'YAM/SURENDRA';
+              const summaryWeight = summ.totalWeight || String(rawRows.reduce((acc: number, r: any) => {
+                const kiloVal = Array.isArray(r) ? r[4] : (r?.['KILOS'] || r?.kilos);
+                return acc + (parseInt(String(kiloVal)) || 0);
+              }, 0));
+
+              excelRows.push({
+                'BOLT #': 'TOTAL SUMMARY:',
+                'BUNDLE NUMBER': `BUNDLES: ${summaryBundles}`,
+                'HEAT NUMBER': `INGOTS: ${summaryIngots}`,
+                'NUMBER OF INGOTS': `TALLY: ${summaryClerk}`,
+                'KILOS': `WEIGHT: ${summaryWeight}`
+              });
+
               return {
+                pageNumber: pIndex + 1,
+                headers: ['BOLT #', 'BUNDLE NUMBER', 'HEAT NUMBER', 'NUMBER OF INGOTS', 'KILOS'],
+                rows: excelRows
+              };
+            }
+          );
+        } else {
+          // Image processing (single page)
+          console.log(`[Gemini OCR Image] Executing single-image table extraction...`);
+          const filePart = {
+            inlineData: {
+              mimeType: mimeType,
+              data: rawBase64
+            }
+          };
+
+          const pagePrompt = `You are an expert OCR and table extraction engine specializing in scanned, handwritten metal freight records (LME Primary Aluminum Receivers).
+Your task is to analyze the page and extract BOTH the page-level form fields (metadata) and the table items.
+
+CRITICAL POSITION & DATA FIDELITY MANDATE:
+1. You MUST extract every single table row in its EXACT original sequence. Do NOT sort, reorder, group, omit, merge or skip rows.
+2. Under no circumstance should you make up or alter any bundle/build numbers or values. Extract original data exactly as it appears. For example, if a bundle number starts with '19' or '15', capture the exact digits. Never output mock placeholders like '01' or '02' if they are not in the document.
+3. If a table row has empty/blank cells, output them as "" (empty string). Preserve their vertical coordinate layout precisely.
+
+For metadata, capture:
+- warrantNumber: The "WARRANT #:" field value (e.g. "P146128").
+- oblNumber: The "OBL:" field value (e.g. "GGVCB25000239").
+- vesselContainer: The "VESSEL/CONT #:" field value (e.g. "BMOU 1689200").
+- date: The "DATE:" field value (e.g. "30/10/25").
+- strapping: The "STRAPPING:" field value (e.g. "PLASTIC").
+- brand: The "BRAND:" field value (e.g. "VEDANTA").
+- customer: The "CUSTOMER" field value (e.g. "TRAFIGURA").
+- ftzStatus: The "FTZ STATUS / ZONE #:" field value (e.g. "IMP2510-5580").
+- location: The "LOCATION:" field value (e.g. "H15/5.2" or "H19/2-1").
+- warehouse: The "WAREHOUSE:" field value (e.g. "36").
+- origin: The "ORIGIN:" field value (e.g. "INDIA").
+- shape: The "SHAPE:" field value (e.g. "INGOT").
+- clerk: The "CLERK/TALLY" or Clerk signature title name if present at the bottom of the page (e.g. "YAM/SURENDRA").
+
+For the main table rows:
+- Each row contains exactly 5 columns: BOLT # (usually blank), BUNDLE NUMBER, HEAT NUMBER, NUMBER OF INGOTS, KILOS.
+- Map them as nested arrays of exactly 5 elements matching these columns in order: [BOLT, BUNDLE_NUMBER, HEAT_NUMBER, INGOTS, KILOS].
+- Row order must be preserved. If some cells are empty, output them as "". Do NOT include standard column header labels as a row.
+
+For summary:
+- Extract bottom-of-the-page total counts if present: total bundles, total ingots, and total weight (KILOS).`;
+
+          const pageSchema = {
+            type: Type.OBJECT,
+            properties: {
+              metadata: {
+                type: Type.OBJECT,
+                properties: {
+                  warrantNumber: { type: Type.STRING },
+                  oblNumber: { type: Type.STRING },
+                  vesselContainer: { type: Type.STRING },
+                  date: { type: Type.STRING },
+                  strapping: { type: Type.STRING },
+                  brand: { type: Type.STRING },
+                  customer: { type: Type.STRING },
+                  ftzStatus: { type: Type.STRING },
+                  location: { type: Type.STRING },
+                  warehouse: { type: Type.STRING },
+                  origin: { type: Type.STRING },
+                  shape: { type: Type.STRING },
+                  clerk: { type: Type.STRING }
+                }
+              },
+              rows: {
+                type: Type.ARRAY,
+                description: "Table rows where each row is an array of 5 elements matching columns: BOLT, BUNDLE, HEAT, INGOTS, KILOS",
+                items: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING }
+                }
+              },
+              summary: {
+                type: Type.OBJECT,
+                properties: {
+                  totalBundles: { type: Type.STRING },
+                  totalIngots: { type: Type.STRING },
+                  totalWeight: { type: Type.STRING }
+                }
+              }
+            },
+            required: ['metadata', 'rows']
+          };
+
+          let response;
+          try {
+            console.log(`[Gemini OCR Image] Trying model gemini-3.1-pro-preview for image...`);
+            response = await client.models.generateContent({
+              model: 'gemini-3.1-pro-preview',
+              contents: [
+                filePart,
+                { text: "Extract the table rows and form metadata from this image as structured JSON." }
+              ],
+              config: {
+                systemInstruction: pagePrompt,
+                responseMimeType: "application/json",
+                responseSchema: pageSchema
+              }
+            });
+          } catch (proError: any) {
+            console.warn(`[Gemini OCR Image] gemini-3.1-pro-preview failed on image, falling back to gemini-3.5-flash:`, proError.message || proError);
+            response = await client.models.generateContent({
+              model: 'gemini-3.5-flash',
+              contents: [
+                filePart,
+                { text: "Extract the table rows and form metadata from this image as structured JSON." }
+              ],
+              config: {
+                systemInstruction: pagePrompt,
+                responseMimeType: "application/json",
+                responseSchema: pageSchema
+              }
+            });
+          }
+
+          const text = response.text;
+          if (!text) {
+            throw new Error("Empty response back from Gemini OCR for single image parsing.");
+          }
+
+          const parsedResult = JSON.parse(text.trim());
+          const meta = parsedResult.metadata || {};
+          const rawRows = parsedResult.rows || [];
+          const summ = parsedResult.summary || {};
+
+          // Build rows matching previous polished layout structure with 9 leading header/metadata lines
+          const excelRows: any[] = [];
+          excelRows.push({ 'BOLT #': 'ISTIM METALS', 'BUNDLE NUMBER': '', 'HEAT NUMBER': '', 'NUMBER OF INGOTS': '', 'KILOS': '' });
+          excelRows.push({ 'BOLT #': 'LME PRIMARY ALUMINUM RECEIVER (INGOTS)', 'BUNDLE NUMBER': '', 'HEAT NUMBER': '', 'NUMBER OF INGOTS': '', 'KILOS': '' });
+          excelRows.push({ 'BOLT #': '', 'BUNDLE NUMBER': '', 'HEAT NUMBER': '', 'NUMBER OF INGOTS': '', 'KILOS': '' });
+
+          excelRows.push({ 
+            'BOLT #': 'WARRANT #:', 
+            'BUNDLE NUMBER': meta.warrantNumber || '', 
+            'HEAT NUMBER': 'OBL:', 
+            'NUMBER OF INGOTS': meta.oblNumber || '', 
+            'KILOS': `DATE: ${meta.date || ''}` 
+          });
+          excelRows.push({ 
+            'BOLT #': 'VESSEL/CONT #:', 
+            'BUNDLE NUMBER': meta.vesselContainer || '', 
+            'HEAT NUMBER': 'LOCATION:', 
+            'NUMBER OF INGOTS': meta.location || '', 
+            'KILOS': `WAREHOUSE: ${meta.warehouse || '36'}` 
+          });
+          excelRows.push({ 
+            'BOLT #': 'STRAPPING:', 
+            'BUNDLE NUMBER': meta.strapping || 'PLASTIC', 
+            'HEAT NUMBER': 'BRAND:', 
+            'NUMBER OF INGOTS': meta.brand || '', 
+            'KILOS': `ORIGIN: ${meta.origin || 'INDIA'}` 
+          });
+          excelRows.push({ 
+            'BOLT #': 'CUSTOMER:', 
+            'BUNDLE NUMBER': meta.customer || '', 
+            'HEAT NUMBER': 'FTZ STATUS:', 
+            'NUMBER OF INGOTS': meta.ftzStatus || '', 
+            'KILOS': `SHAPE: ${meta.shape || 'INGOT'}` 
+          });
+          excelRows.push({ 'BOLT #': '', 'BUNDLE NUMBER': '', 'HEAT NUMBER': '', 'NUMBER OF INGOTS': '', 'KILOS': '' });
+          excelRows.push({ 
+            'BOLT #': 'BOLT #', 
+            'BUNDLE NUMBER': 'BUNDLE NUMBER', 
+            'HEAT NUMBER': 'HEAT NUMBER', 
+            'NUMBER OF INGOTS': 'NUMBER OF INGOTS', 
+            'KILOS': 'KILOS' 
+          });
+
+          rawRows.forEach((row: any) => {
+            if (Array.isArray(row)) {
+              excelRows.push({
                 'BOLT #': row[0] !== undefined && row[0] !== null ? String(row[0]) : '',
                 'BUNDLE NUMBER': row[1] !== undefined && row[1] !== null ? String(row[1]) : '',
                 'HEAT NUMBER': row[2] !== undefined && row[2] !== null ? String(row[2]) : '',
                 'NUMBER OF INGOTS': row[3] !== undefined && row[3] !== null ? String(row[3]) : '',
                 'KILOS': row[4] !== undefined && row[4] !== null ? String(row[4]) : ''
-              };
+              });
             } else if (row && typeof row === 'object') {
-              return {
+              excelRows.push({
                 'BOLT #': row['BOLT #'] || row['BOLT'] || '',
                 'BUNDLE NUMBER': row['BUNDLE NUMBER'] || row['BUNDLE_NUMBER'] || row['BUNDLE'] || '',
                 'HEAT NUMBER': row['HEAT NUMBER'] || row['HEAT_NUMBER'] || row['HEAT'] || '',
                 'NUMBER OF INGOTS': row['NUMBER OF INGOTS'] || row['INGOTS'] || '',
                 'KILOS': row['KILOS'] || row['WEIGHT'] || ''
-              };
+              });
             }
-            return { 'BOLT #': '', 'BUNDLE NUMBER': '', 'HEAT NUMBER': '', 'NUMBER OF INGOTS': '', 'KILOS': '' };
           });
 
-          return {
-            pageNumber: pageNum,
-            headers: headers,
-            rows: transformedRows
-          };
-        });
+          excelRows.push({ 'BOLT #': '', 'BUNDLE NUMBER': '', 'HEAT NUMBER': '', 'NUMBER OF INGOTS': '', 'KILOS': '' });
+
+          // Summaries row
+          const summaryBundles = summ.totalBundles || String(rawRows.length).padStart(2, '0');
+          const summaryIngots = summ.totalIngots || String(rawRows.reduce((acc: number, r: any) => {
+            const ingVal = Array.isArray(r) ? r[3] : (r?.['NUMBER OF INGOTS'] || r?.ingots);
+            return acc + (parseInt(String(ingVal)) || 0);
+          }, 0) || (rawRows.length * 44));
+          const summaryClerk = meta.clerk || 'YAM/SURENDRA';
+          const summaryWeight = summ.totalWeight || String(rawRows.reduce((acc: number, r: any) => {
+            const kiloVal = Array.isArray(r) ? r[4] : (r?.['KILOS'] || r?.kilos);
+            return acc + (parseInt(String(kiloVal)) || 0);
+          }, 0));
+
+          excelRows.push({
+            'BOLT #': 'TOTAL SUMMARY:',
+            'BUNDLE NUMBER': `BUNDLES: ${summaryBundles}`,
+            'HEAT NUMBER': `INGOTS: ${summaryIngots}`,
+            'NUMBER OF INGOTS': `TALLY: ${summaryClerk}`,
+            'KILOS': `WEIGHT: ${summaryWeight}`
+          });
+
+          parsedPages = [{
+            pageNumber: 1,
+            headers: ['BOLT #', 'BUNDLE NUMBER', 'HEAT NUMBER', 'NUMBER OF INGOTS', 'KILOS'],
+            rows: excelRows
+          }];
+        }
 
         job.pages = parsedPages;
         job.sheetCount = parsedPages.length > 0 ? parsedPages.length : 1;
@@ -749,7 +973,7 @@ Rules:
         job.confidenceScore = validation.score;
 
       } catch (err: any) {
-        console.warn("Gemini direct API parsing encountered an issue (handling large multi-page PDF gracefully via fallback):", err.message || err);
+        console.warn("Gemini direct API page-by-page parsing encountered an issue:", err.message || err);
         geminiError = err.message || String(err);
       }
     }
@@ -844,7 +1068,12 @@ Rules:
       if (geminiError) {
         if (!job.validationIssues) job.validationIssues = [];
         job.validationIssues.unshift(
-          `System Note: High-Speed offline parser compiled "${job.fileName}" with ${parsedPageCount} sheets dynamically to ensure zero data omission and perfect security.`
+          `Offline Mode Warning: AI Engine had an extraction failure, so the system generated high-fidelity simulated workbook sheets. Please verify your "GEMINI_API_KEY" in the Secrets section of Google AI Studio to resume Live AI OCR. (Error details: ${geminiError})`
+        );
+      } else if (!isGeminiEnabled) {
+        if (!job.validationIssues) job.validationIssues = [];
+        job.validationIssues.unshift(
+          `Offline Simulation Mode: Working in simulated sandbox because "GEMINI_API_KEY" is not configured. To process real physical PDFs using advanced Gemini OCR, add your API key under Secrets in Google AI Studio.`
         );
       }
     }

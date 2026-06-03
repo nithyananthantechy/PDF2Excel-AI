@@ -15,10 +15,24 @@ export default function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loadingUser, setLoadingUser] = useState(true);
   const [activeJobForInspector, setActiveJobForInspector] = useState<Job | null>(null);
+  const [isGeminiEnabled, setIsGeminiEnabled] = useState<boolean | null>(null);
 
   useEffect(() => {
     checkCurrentUser();
+    checkSystemStatus();
   }, []);
+
+  const checkSystemStatus = async () => {
+    try {
+      const res = await fetch('/api/system/status');
+      if (res.ok) {
+        const data = await res.json();
+        setIsGeminiEnabled(data.isGeminiEnabled);
+      }
+    } catch (err) {
+      console.error('Error fetching system status:', err);
+    }
+  };
 
   useEffect(() => {
     if (currentUser) {
@@ -136,6 +150,17 @@ export default function App() {
           <span className="text-lg font-bold tracking-tight text-[#0f172a] font-sans">
             Nithyana Cable <span className="text-blue-600">Admin</span>
           </span>
+          {isGeminiEnabled === true ? (
+            <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2.5 py-0.5 border border-emerald-200 rounded flex items-center gap-1.5 animate-pulse" id="status-badge-live">
+              <span className="w-1.5 h-1.5 bg-emerald-600 rounded-full inline-block"></span>
+              Live AI OCR Active
+            </span>
+          ) : isGeminiEnabled === false ? (
+            <span className="bg-amber-50 text-amber-700 text-[10px] font-bold px-2.5 py-0.5 border border-amber-200 rounded flex items-center gap-1.5" id="status-badge-simulated" title="Operating in simulated offline mode. Processed sheets use robust sandboxed mock datasets.">
+              <span className="w-1.5 h-1.5 bg-amber-500 rounded-full inline-block animate-pulse"></span>
+              Simulation Mode
+            </span>
+          ) : null}
           <span className="hidden sm:inline-block text-[10px] font-mono text-slate-450 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded uppercase font-extrabold tracking-widest text-[#64748b]">Nithyananthan Administration Console</span>
         </div>
 
